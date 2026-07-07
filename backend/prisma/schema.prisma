@@ -1,0 +1,144 @@
+// FieldSync Prisma schema
+// Every syncable table follows the same convention required by the WatermelonDB
+// sync protocol:
+//   - last_modified: bumped by the SERVER on every write. Never trust a
+//     client-supplied value for this column — see sync.service.ts.
+//   - server_created_at: set once, at insert time, by the server.
+//   - deleted_at: soft delete marker. Rows are never hard-deleted so that
+//     "deleted" can be replicated to clients as a change record.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  SUPERVISOR
+  TECHNICIAN
+}
+
+enum JobStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AttachmentType {
+  photo
+  signature
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users User[]
+  jobs  Job[]
+
+  @@map("organizations")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role     @default(TECHNICIAN)
+  lastModified DateTime @default(now()) @updatedAt @map("last_modified")
+  createdAt    DateTime @default(now()) @map("created_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  org          Organization @relation(fields: [orgId], references: [id])
+  assignedJobs Job[]         @relation("AssignedJobs")
+
+  @@index([orgId])
+  @@map("users")
+}
+
+model Job {
+  id             String    @id @default(uuid())
+  orgId          String    @map("org_id")
+  status         JobStatus @default(PENDING)
+  title          String    @default("")
+  description    String?   @default("")
+  assignedTo     String?   @map("assigned_to")
+  locationLat    Float?    @map("location_lat")
+  locationLng    Float?    @map("location_lng")
+  lastModified   DateTime  @default(now()) @updatedAt @map("last_modified")
+  serverCreatedAt DateTime @default(now()) @map("server_created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  org         Organization @relation(fields: [orgId], references: [id])
+  assignee    User?         @relation("AssignedJobs", fields: [assignedTo], references: [id])
+  submissions Submission[]
+
+  @@index([orgId])
+  @@index([lastModified])
+  @@map("jobs")
+}
+
+model Submission {
+  id              String   @id @default(uuid())
+  jobId           String   @map("job_id")
+  data            Json     @default("{}")
+  needsReview     Boolean  @default(false) @map("needs_review")
+  lastModified    DateTime @default(now()) @updatedAt @map("last_modified")
+  serverCreatedAt DateTime @default(now()) @map("server_created_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  job         Job          @relation(fields: [jobId], references: [id])
+  attachments Attachment[]
+  conflictLogs ConflictLog[]
+
+  @@index([jobId])
+  @@index([lastModified])
+  @@index([needsReview])
+  @@map("submissions")
+}
+
+model Attachment {
+  id              String         @id @default(uuid())
+  submissionId    String         @map("submission_id")
+  type            AttachmentType
+  localUri        String?        @map("local_uri")
+  remoteUrl       String?        @map("remote_url")
+  lastModified    DateTime       @default(now()) @updatedAt @map("last_modified")
+  serverCreatedAt DateTime       @default(now()) @map("server_created_at")
+  deletedAt       DateTime?      @map("deleted_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id])
+
+  @@index([submissionId])
+  @@index([lastModified])
+  @@map("attachments")
+}
+
+// Records a single conflicting field detected during a sync push. When a
+// client's submission update collides with a newer server version, one row
+// is written per differing field rather than rejecting the whole submission
+// outright — this is what powers the web dashboard's side-by-side diff and
+// per-field resolution.
+model ConflictLog {
+  id             String   @id @default(uuid())
+  submissionId   String   @map("submission_id")
+  fieldName      String   @map("field_name")
+  localValue     Json?    @map("local_value")
+  remoteValue    Json?    @map("remote_value")
+  resolved       Boolean  @default(false)
+  resolvedValue  Json?    @map("resolved_value")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id])
+
+  @@index([submissionId])
+  @@index([resolved])
+  @@map("conflict_logs")
+}

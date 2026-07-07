@@ -1,0 +1,9 @@
+{
+  "name": "@fieldsync/shared",
+  "version": "0.1.0",
+  "description": "Shared TypeScript types for FieldSync's mobile and web clients — mirrors the backend's Prisma schema and sync wire format.",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}

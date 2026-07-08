@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role } from '@prisma/client';
+import { publicUserSelect } from './user-select.util';
 
 @Injectable()
 export class UsersService {
@@ -11,11 +12,15 @@ export class UsersService {
     return this.prisma.user.findMany({
       where: { orgId, deletedAt: null },
       orderBy: { name: 'asc' },
+      select: publicUserSelect,
     });
   }
 
   async findOne(orgId: string, id: string) {
-    const user = await this.prisma.user.findFirst({ where: { id, orgId, deletedAt: null } });
+    const user = await this.prisma.user.findFirst({
+      where: { id, orgId, deletedAt: null },
+      select: publicUserSelect,
+    });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
@@ -30,6 +35,7 @@ export class UsersService {
         passwordHash,
         role: data.role ?? Role.TECHNICIAN,
       },
+      select: publicUserSelect,
     });
   }
 
@@ -38,6 +44,7 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id },
       data: { deletedAt: new Date() },
+      select: publicUserSelect,
     });
   }
 }

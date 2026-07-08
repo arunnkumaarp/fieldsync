@@ -18,10 +18,18 @@ export class SubmissionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('needsReview') needsReview?: string,
     @Query('jobId') jobId?: string,
+    @Query('technicianId') technicianId?: string,
+    @Query('jobStatus') jobStatus?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.submissionsService.findAllForOrg(user.orgId, {
       needsReview: needsReview === undefined ? undefined : needsReview === 'true',
       jobId,
+      technicianId,
+      jobStatus,
+      dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+      dateTo: dateTo ? new Date(dateTo) : undefined,
     });
   }
 

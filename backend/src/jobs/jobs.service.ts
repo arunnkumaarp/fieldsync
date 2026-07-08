@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
+import { publicUserSelect } from '../users/user-select.util';
 
 @Injectable()
 export class JobsService {
@@ -11,11 +12,15 @@ export class JobsService {
     return this.prisma.job.findMany({
       where: { orgId, deletedAt: null },
       orderBy: { lastModified: 'desc' },
+      include: { assignee: { select: publicUserSelect } },
     });
   }
 
   async findOne(orgId: string, id: string) {
-    const job = await this.prisma.job.findFirst({ where: { id, orgId, deletedAt: null } });
+    const job = await this.prisma.job.findFirst({
+      where: { id, orgId, deletedAt: null },
+      include: { assignee: { select: publicUserSelect } },
+    });
     if (!job) throw new NotFoundException('Job not found');
     return job;
   }

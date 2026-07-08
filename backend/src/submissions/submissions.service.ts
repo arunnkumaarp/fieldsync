@@ -5,6 +5,7 @@ import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { UpdateSubmissionDto } from './dto/update-submission.dto';
 import { ResolveConflictDto } from './dto/resolve-conflict.dto';
 import { diffSubmissionFields } from './conflict-diff.util';
+import { publicUserSelect } from '../users/user-select.util';
 
 @Injectable()
 export class SubmissionsService {
@@ -15,15 +16,39 @@ export class SubmissionsService {
 
   // Submissions are scoped to an org through their parent job, so listing
   // requires a join rather than a direct org_id column on the table.
-  findAllForOrg(orgId: string, filters: { needsReview?: boolean; jobId?: string }) {
+  // technician/jobStatus filter on the parent job (submissions have no
+  // status or assignee of their own); date filters apply to lastModified.
+  findAllForOrg(
+    orgId: string,
+    filters: {
+      needsReview?: boolean;
+      jobId?: string;
+      technicianId?: string;
+      jobStatus?: string;
+      dateFrom?: Date;
+      dateTo?: Date;
+    },
+  ) {
     return this.prisma.submission.findMany({
       where: {
         deletedAt: null,
         needsReview: filters.needsReview,
         jobId: filters.jobId,
-        job: { orgId },
+        lastModified: {
+          gte: filters.dateFrom,
+          lte: filters.dateTo,
+        },
+        job: {
+          orgId,
+          assignedTo: filters.technicianId,
+          status: filters.jobStatus as any,
+        },
       },
-      include: { attachments: true, conflictLogs: { where: { resolved: false } } },
+      include: {
+        attachments: true,
+        conflictLogs: { where: { resolved: false } },
+        job: { include: { assignee: { select: publicUserSelect } } },
+      },
       orderBy: { lastModified: 'desc' },
     });
   }
@@ -31,7 +56,11 @@ export class SubmissionsService {
   async findOne(orgId: string, id: string) {
     const submission = await this.prisma.submission.findFirst({
       where: { id, deletedAt: null, job: { orgId } },
-      include: { attachments: true, conflictLogs: true, job: true },
+      include: {
+        attachments: true,
+        conflictLogs: true,
+        job: { include: { assignee: { select: publicUserSelect } } },
+      },
     });
     if (!submission) throw new NotFoundException('Submission not found');
     return submission;

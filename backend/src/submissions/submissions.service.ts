@@ -4,6 +4,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { UpdateSubmissionDto } from './dto/update-submission.dto';
 import { ResolveConflictDto } from './dto/resolve-conflict.dto';
+import { diffSubmissionFields } from './conflict-diff.util';
 
 @Injectable()
 export class SubmissionsService {
@@ -104,6 +105,47 @@ export class SubmissionsService {
     });
 
     this.realtime.emitSubmissionUpsert(orgId, updated);
+    return updated;
+  }
+
+  // Called by the mobile app when its OWN client-side conflict detection
+  // (WatermelonDB's `conflictResolver`, invoked while pulling) finds that a
+  // pending local edit collides with a newer server version. This exists
+  // because of a timing gap in WatermelonDB's sync protocol: `synchronize()`
+  // always pulls immediately before it pushes, so by the time our push
+  // endpoint's own staleness check runs, `last_pulled_at` has already been
+  // refreshed by that same pull — the offline-edit-vs-newer-server-edit
+  // conflict the push check is meant to catch has, by then, already been
+  // silently merged away on the client. The mobile app's conflictResolver
+  // catches it earlier (while it still has both versions in hand) and
+  // reports it here instead of trusting the client to resolve it silently.
+  // The diff is re-computed against whatever is *currently* in the database
+  // (not a value the client sent) — if nothing actually differs anymore
+  // (e.g. a duplicate report from a retried request), this is a no-op.
+  async reportConflict(orgId: string, submissionId: string, localData: Record<string, unknown>) {
+    const submission = await this.findOne(orgId, submissionId);
+    const diffs = diffSubmissionFields(localData, (submission.data as Record<string, unknown>) ?? {});
+    if (diffs.length === 0) return submission;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      for (const diff of diffs) {
+        await tx.conflictLog.create({
+          data: {
+            submissionId,
+            fieldName: diff.fieldName,
+            localValue: diff.localValue as any,
+            remoteValue: diff.remoteValue as any,
+          },
+        });
+      }
+      return tx.submission.update({
+        where: { id: submissionId },
+        data: { needsReview: true, lastModified: new Date() },
+        include: { conflictLogs: true, attachments: true },
+      });
+    });
+
+    this.realtime.emitSubmissionConflict(orgId, updated);
     return updated;
   }
 }

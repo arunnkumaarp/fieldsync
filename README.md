@@ -70,8 +70,8 @@ Each subproject is meant to become its own GitHub repo — see
 This project was built in four phases, each independently checked in:
 
 1. **Backend schema + sync endpoints** — Prisma schema, auth, `/sync` pull/push, jobs/submissions/attachments/users CRUD, WebSocket gateway, seed data. *(done)*
-2. **Mobile offline forms** — WatermelonDB schema, job list, dynamic form with photo/signature/GPS capture, local CRUD. No sync yet.
-3. **Sync integration end-to-end** — wires mobile's `synchronize()` to the backend, conflict-rejection handling, queued attachment uploads.
+2. **Mobile offline forms** — WatermelonDB schema, job list, dynamic form with photo/signature/GPS capture, local CRUD. No sync yet. *(done)*
+3. **Sync integration end-to-end** — wires mobile's `synchronize()` to the backend, client + server conflict detection and reporting, queued attachment uploads. *(done)*
 4. **Web dashboard** — submissions feed, conflict review, job map, submission detail.
 
 ## Publishing to your own repos

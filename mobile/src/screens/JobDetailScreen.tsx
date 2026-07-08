@@ -25,7 +25,7 @@ export function JobDetailScreen({ route }: Props) {
 
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [photoUri, setPhotoUri] = useState<string | undefined>();
-  const [signaturePath, setSignaturePath] = useState<string | undefined>();
+  const [signatureUri, setSignatureUri] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
 
   if (!job) {
@@ -52,16 +52,13 @@ export function JobDetailScreen({ route }: Props) {
       if (photoUri) {
         await createAttachment(database, submission.id, 'photo', photoUri);
       }
-      if (signaturePath) {
-        // Raw SVG path data, not a file yet — phase 3's upload queue is what
-        // rasterizes this into a real image file when it has a signed URL to
-        // PUT it to. Storing it here just proves capture works offline.
-        await createAttachment(database, submission.id, 'signature', signaturePath);
+      if (signatureUri) {
+        await createAttachment(database, submission.id, 'signature', signatureUri);
       }
 
       setValues({});
       setPhotoUri(undefined);
-      setSignaturePath(undefined);
+      setSignatureUri(undefined);
       Alert.alert('Saved', 'Submission saved locally.' + (gps ? '' : ' (GPS unavailable — saved without location.)'));
     } catch (error) {
       Alert.alert('Could not save submission', error instanceof Error ? error.message : String(error));
@@ -91,8 +88,8 @@ export function JobDetailScreen({ route }: Props) {
         <PhotoCapture photoUri={photoUri} onCapture={setPhotoUri} />
 
         <Text style={[styles.label, styles.signatureLabel]}>Signature</Text>
-        <SignaturePad width={SIGNATURE_WIDTH} height={160} onCapture={setSignaturePath} onClear={() => setSignaturePath(undefined)} />
-        {signaturePath ? <Text style={styles.capturedNote}>Signature captured ✓</Text> : null}
+        <SignaturePad width={SIGNATURE_WIDTH} height={160} onCapture={setSignatureUri} onClear={() => setSignatureUri(undefined)} />
+        {signatureUri ? <Text style={styles.capturedNote}>Signature captured ✓</Text> : null}
 
         <Pressable style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
           {submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.submitLabel}>Submit</Text>}

@@ -63,6 +63,18 @@ split is purely informational and there's no way for the server to know
 which of *this* pull's rows the calling device has never seen before.
 Soft-deleted rows are reported by id only, under `deleted`.
 
+One deliberate wire-format quirk: `submissions.data` is sent as a **JSON-encoded
+string**, not a nested object, even though the REST API (`GET /submissions/:id`)
+returns it as a real object. This isn't an inconsistency — it's required.
+WatermelonDB's mobile schema declares `data` as a plain `'string'` SQLite
+column (SQLite has no JSON column type), and the sync layer applies pulled
+rows at that raw-column level, bypassing the `@json` model decorator that
+would otherwise parse it. Sending a real object here gets silently coerced to
+`''` by WatermelonDB's raw-value sanitizer (any non-string value into a
+`'string'`-typed column becomes empty) — every submission's data would be
+wiped on pull. `parseSubmissionDataFromWire()` in `sync.mappers.ts` is the
+inverse, applied on push.
+
 ### Push — `POST /sync?last_pulled_at=<ms>`
 
 Body:
@@ -121,6 +133,33 @@ Applies the chosen value onto `submissions.data[fieldName]`, marks that
 unresolved conflict logs remain for the submission — all inside one
 transaction so the submission and its log can never disagree about
 resolution state.
+
+### Client-detected conflicts — `POST /submissions/:id/report-conflict`
+
+Body: `{ "localData": { ...the client's pre-merge submission.data... } }`.
+
+This exists because of a timing gap in WatermelonDB's own sync protocol that
+the naive push-time staleness check above can't close. `synchronize()`
+**always pulls immediately before it pushes** — so by the time a push
+reaches this backend, `last_pulled_at` has already been refreshed by that
+same call's pull. Concretely: if device A edits a submission offline, then
+reconnects and syncs, then device B (also offline since before A's edit)
+reconnects — B's *pull* phase fetches A's version and, by WatermelonDB's
+default per-column merge rule, silently keeps B's local value for any field
+B also touched. B's *push* phase then sends that merged data with a
+`last_pulled_at` that's already fresh (from the pull moments earlier), so
+the `existing.last_modified > last_pulled_at` check never fires — the
+conflict already happened, invisibly, entirely on B's device.
+
+The mobile app closes this gap with a custom WatermelonDB `conflictResolver`
+(see `mobile/src/sync/conflictResolver.ts`) that runs during that pull-merge
+step, while both versions are still available. It forces the resolution to
+the server's value (so nothing is silently overwritten going forward) and
+calls this endpoint with what the discarded local edit actually was. The
+server re-diffs `localData` against whatever is *currently* stored (not a
+value it's asked to trust) and only writes `conflict_logs` rows / flips
+`needs_review` for fields that genuinely still differ — calling this twice
+with the same already-resolved data is a no-op, not a duplicate conflict.
 
 ## Realtime
 

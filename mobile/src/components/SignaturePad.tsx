@@ -1,21 +1,26 @@
 import React, { useRef, useState } from 'react';
-import { View, PanResponder, StyleSheet, Pressable, Text } from 'react-native';
+import { View, PanResponder, StyleSheet, Pressable, Text, Alert } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import ViewShot from 'react-native-view-shot';
 
 interface Props {
   width: number;
   height: number;
-  onCapture: (svgPathData: string) => void;
+  // A local file:// PNG uri, produced by snapshotting the drawn strokes —
+  // the same shape as PhotoCapture's onCapture, so both attachment types
+  // flow through one upload path (see src/sync/uploadQueue.ts).
+  onCapture: (localUri: string) => void;
   onClear?: () => void;
 }
 
 // A minimal freehand signature capture surface: PanResponder tracks touch
-// points into an SVG path string, which is what gets handed to onCapture.
-// Rendering that path string back to a PNG (for upload) happens in phase 3
-// alongside the actual upload queue — capturing it is all phase 2 needs.
+// points into an SVG path string, rendered live. On "Use signature", the
+// whole canvas is snapshotted to a real PNG file via react-native-view-shot
+// — that's what makes a signature just another local-uri attachment.
 export function SignaturePad({ width, height, onCapture, onClear }: Props) {
   const [paths, setPaths] = useState<string[]>([]);
   const currentPath = useRef<string>('');
+  const viewShotRef = useRef<ViewShot>(null);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -42,19 +47,26 @@ export function SignaturePad({ width, height, onCapture, onClear }: Props) {
     onClear?.();
   };
 
-  const handleDone = () => {
-    onCapture(paths.join(' '));
+  const handleDone = async () => {
+    try {
+      const uri = await viewShotRef.current?.capture?.();
+      if (uri) onCapture(uri);
+    } catch (error) {
+      Alert.alert('Could not capture signature', error instanceof Error ? error.message : String(error));
+    }
   };
 
   return (
     <View>
-      <View style={[styles.canvas, { width, height }]} {...panResponder.panHandlers}>
-        <Svg width={width} height={height}>
-          {paths.map((d, index) => (
-            <Path key={index} d={d} stroke="#111827" strokeWidth={2.5} fill="none" />
-          ))}
-        </Svg>
-      </View>
+      <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 0.9 }}>
+        <View style={[styles.canvas, { width, height }]} {...panResponder.panHandlers}>
+          <Svg width={width} height={height}>
+            {paths.map((d, index) => (
+              <Path key={index} d={d} stroke="#111827" strokeWidth={2.5} fill="none" />
+            ))}
+          </Svg>
+        </View>
+      </ViewShot>
       <View style={styles.actions}>
         <Pressable style={styles.secondaryButton} onPress={handleClear}>
           <Text style={styles.secondaryButtonLabel}>Clear</Text>

@@ -22,7 +22,15 @@ export function submissionToWire(submission: Submission) {
   return {
     id: submission.id,
     job_id: submission.jobId,
-    data: submission.data,
+    // JSON-encoded STRING, not the object itself. `data` is declared as a
+    // plain 'string' column in the mobile app's WatermelonDB schema (SQLite
+    // columns are scalar); WatermelonDB's sync layer applies pulled rows at
+    // the raw-column level, bypassing the @json model decorator that would
+    // otherwise parse it. Sending a real object here would get coerced to ''
+    // by WatermelonDB's raw sanitizer (a non-string value into a 'string'
+    // column). The REST API (SubmissionsController) intentionally does NOT
+    // do this — only the sync wire format needs it.
+    data: JSON.stringify(submission.data ?? {}),
     needs_review: submission.needsReview,
     last_modified: ms(submission.lastModified),
     server_created_at: ms(submission.serverCreatedAt),
@@ -41,6 +49,22 @@ export function attachmentToWire(attachment: Attachment) {
     server_created_at: ms(attachment.serverCreatedAt),
     deleted_at: ms(attachment.deletedAt),
   };
+}
+
+// Inverse of the encoding in submissionToWire: a sync push's `data` arrives
+// as a JSON-encoded string (WatermelonDB's raw column value), but REST
+// clients (e.g. a future admin tool hitting SubmissionsController directly)
+// could plausibly send a real object. Accept either.
+export function parseSubmissionDataFromWire(raw: unknown): Record<string, unknown> {
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
 }
 
 // WatermelonDB's client applies `created` and `updated` rows identically

@@ -2,8 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import { attachmentToWire, jobToWire, splitChangeSet, submissionToWire } from './sync.mappers';
+import { attachmentToWire, jobToWire, parseSubmissionDataFromWire, splitChangeSet, submissionToWire } from './sync.mappers';
 import { PullSyncResult, PushChangesBody, PushSyncResult, RejectedRecord, TableChangeSet } from './sync.types';
+import { diffSubmissionFields } from '../submissions/conflict-diff.util';
 
 type Tx = Prisma.TransactionClient;
 
@@ -220,7 +221,9 @@ export class SyncService {
           rejected.push({ table: 'submissions', id, reason: 'missing-job' });
           continue;
         }
-        await tx.submission.create({ data: { id, jobId: raw.job_id, data: raw.data ?? {} } });
+        await tx.submission.create({
+          data: { id, jobId: raw.job_id, data: parseSubmissionDataFromWire(raw.data) as any },
+        });
         touched.add(id);
         continue;
       }
@@ -230,20 +233,21 @@ export class SyncService {
         // Diff the two JSON blobs field by field, log every field that
         // actually differs, and flag the submission for human review instead
         // of silently picking a winner or applying the client's stale data.
-        const localData = (raw.data ?? {}) as Record<string, unknown>;
+        const localData = parseSubmissionDataFromWire(raw.data);
         const remoteData = (existing.data ?? {}) as Record<string, unknown>;
-        const fieldNames = new Set([...Object.keys(localData), ...Object.keys(remoteData)]);
+        const diffs = diffSubmissionFields(localData, remoteData);
         const conflictLogIds: string[] = [];
 
-        for (const field of fieldNames) {
-          const localValue = localData[field] ?? null;
-          const remoteValue = remoteData[field] ?? null;
-          if (JSON.stringify(localValue) !== JSON.stringify(remoteValue)) {
-            const log = await tx.conflictLog.create({
-              data: { submissionId: id, fieldName: field, localValue: localValue as any, remoteValue: remoteValue as any },
-            });
-            conflictLogIds.push(log.id);
-          }
+        for (const diff of diffs) {
+          const log = await tx.conflictLog.create({
+            data: {
+              submissionId: id,
+              fieldName: diff.fieldName,
+              localValue: diff.localValue as any,
+              remoteValue: diff.remoteValue as any,
+            },
+          });
+          conflictLogIds.push(log.id);
         }
 
         if (conflictLogIds.length > 0) {
@@ -257,7 +261,7 @@ export class SyncService {
 
       await tx.submission.update({
         where: { id },
-        data: { data: (raw.data ?? existing.data) as any, lastModified: new Date() },
+        data: { data: parseSubmissionDataFromWire(raw.data ?? existing.data) as any, lastModified: new Date() },
       });
       touched.add(id);
     }

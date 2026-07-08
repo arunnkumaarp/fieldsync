@@ -59,7 +59,13 @@ export interface JobWire {
 export interface SubmissionWire {
   id: string;
   job_id: string;
-  data: Record<string, unknown>;
+  // JSON-*encoded string*, not a nested object — required by WatermelonDB's
+  // raw sync layer, which applies this column at the raw-SQLite-string level
+  // rather than through the @json model decorator. See
+  // backend/README.md#sync-protocol and mobile/src/db/models/Submission.ts.
+  // The REST API (GET /submissions/:id) returns this same field as a real
+  // object — only the sync wire format uses the string encoding.
+  data: string;
   needs_review: boolean;
   last_modified: number | null;
   server_created_at: number | null;

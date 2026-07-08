@@ -1,9 +1,11 @@
-import React from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import React, { useLayoutEffect } from 'react';
+import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { useJobs } from '../hooks/useJobs';
 import { SyncStatusBar } from '../components/SyncStatusBar';
+import { useSync } from '../sync/SyncContext';
+import { useAuth } from '../auth/AuthContext';
 import type Job from '../db/models/Job';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'JobList'>;
@@ -17,6 +19,14 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function JobListScreen({ navigation }: Props) {
   const jobs = useJobs();
+  const { isSyncing, syncNow } = useSync();
+  const { logout } = useAuth();
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => <SignOutButton onPress={logout} />,
+    });
+  }, [navigation, logout]);
 
   return (
     <View style={styles.screen}>
@@ -25,6 +35,7 @@ export function JobListScreen({ navigation }: Props) {
         data={jobs}
         keyExtractor={(job) => job.id}
         contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={isSyncing} onRefresh={syncNow} />}
         renderItem={({ item }) => <JobRow job={item} onPress={() => navigation.navigate('JobDetail', { jobId: item.id })} />}
         ListEmptyComponent={
           <View style={styles.empty}>
@@ -33,6 +44,14 @@ export function JobListScreen({ navigation }: Props) {
         }
       />
     </View>
+  );
+}
+
+function SignOutButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={8}>
+      <Text style={styles.headerAction}>Sign out</Text>
+    </Pressable>
   );
 }
 
@@ -56,6 +75,7 @@ function JobRow({ job, onPress }: { job: Job; onPress: () => void }) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#FFFFFF' },
   list: { paddingVertical: 4 },
+  headerAction: { color: '#2563EB', fontWeight: '600', fontSize: 14, marginRight: 4 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
